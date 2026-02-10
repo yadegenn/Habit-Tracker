@@ -2,3 +2,5 @@ flask
 sqlalchemy
 flask-sqlalchemy
 flask-smorest
+flask-jwt-extended
+passlib

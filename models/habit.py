@@ -8,4 +8,5 @@ class HabitModel(db.Model):
     is_complete = db.Column(db.Boolean, default=False,nullable=False)
     streak = db.Column(db.Integer, default=0, nullable=False)
     weakly_goal = db.Column(db.Integer, nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     user = db.relationship("UserModel", back_populates="habits")
