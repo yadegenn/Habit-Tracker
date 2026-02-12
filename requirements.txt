@@ -5,3 +5,4 @@ flask-smorest
 flask-jwt-extended
 passlib
 dotenv
+flask-migrate
