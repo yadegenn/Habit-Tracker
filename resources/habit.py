@@ -34,7 +34,7 @@ def update_complete_status():
             if i.date > sorted_list[there_index]['date']:
                 sorted_list[there_index]['date'] = i.date
     for i in sorted_list:
-        if datetime.now().date()!=i["date"]:
+        if datetime.now(ZoneInfo("Europe/Moscow")).date()!=i["date"]:
             selected_habit = HabitModel.query.filter(and_(HabitModel.user==user, HabitModel.id==i["habit_id"])).first()
             selected_habit.is_complete = False
             db.session.add(selected_habit)
@@ -91,13 +91,41 @@ class PickHabit(MethodView):
         searched_habit = filtered_habit(habit_id)
 
         if(habit_data['is_complete'] and habit_data['is_complete']==True):
-            new_log = CompleteHabitsModel(
-                date=datetime.now(ZoneInfo("Europe/Moscow")),
-                habit_id=habit_id
-            )
-            db.session.add(new_log)
-            db.session.commit()
+            user = UserModel.query.get_or_404(int(get_jwt_identity()))
+            all_habits_ids = [i.id for i in HabitModel.query.filter(HabitModel.user == user)]
+            all_complete_habits = CompleteHabitsModel.query.filter(
+                CompleteHabitsModel.habit_id.in_(all_habits_ids)).all()
+            is_added_new_log = True
+            for i in all_complete_habits:
+                if i.habit_id==habit_id:
+                    if i.date==datetime.now(ZoneInfo("Europe/Moscow")).date():
+                        is_added_new_log = False
+            if(is_added_new_log):
+                new_log = CompleteHabitsModel(
+                    date=datetime.now(ZoneInfo("Europe/Moscow")),
+                    habit_id=habit_id
+                )
+                db.session.add(new_log)
+                db.session.commit()
+
+        elif (habit_data['is_complete'] == False):
+            print(habit_data['is_complete'])
+            user = UserModel.query.get_or_404(int(get_jwt_identity()))
+            all_habits_ids = [i.id for i in HabitModel.query.filter(HabitModel.user == user)]
+            all_complete_habits = CompleteHabitsModel.query.filter(
+                CompleteHabitsModel.habit_id.in_(all_habits_ids)).all()
+            is_delete_log = False
+            id_delete = 0
+            for i in all_complete_habits:
+                if i.habit_id == habit_id:
+                    if i.date == datetime.now(ZoneInfo("Europe/Moscow")).date():
+                        is_delete_log = True
+                        id_delete = i.id
+            if (is_delete_log):
+                log = CompleteHabitsModel.query.get_or_404(id_delete)
+                db.session.delete(log)
+                db.session.commit()
         searched_habit.is_complete = habit_data['is_complete']
         db.session.add(searched_habit)
         db.session.commit()
-        return {"message": "Привычка успешно выполнена"}
+        return {"message": "Данные привычки обновлены"}
