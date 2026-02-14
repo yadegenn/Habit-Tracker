@@ -1,6 +1,8 @@
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from flask import jsonify
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from db import db
@@ -21,9 +23,9 @@ def filtered_habit(habit_id):
 
 def update_complete_status():
     user = UserModel.query.get_or_404(int(get_jwt_identity()))
-    all_habits_ids = [i.id for i in HabitModel.query.filter(HabitModel.user == user)]
+    all_habits = HabitModel.query.filter(HabitModel.user == user)
+    all_habits_ids = [i.id for i in all_habits]
     all_complete_habits = CompleteHabitsModel.query.filter(CompleteHabitsModel.habit_id.in_(all_habits_ids)).all()
-
     sorted_list = []
     for i in all_complete_habits:
         srt_list_ids = [k['habit_id'] for k in sorted_list]
@@ -33,6 +35,9 @@ def update_complete_status():
             there_index = srt_list_ids.index(i.habit_id)
             if i.date > sorted_list[there_index]['date']:
                 sorted_list[there_index]['date'] = i.date
+    for i in all_habits:
+        if i.id not in [x['habit_id'] for x in sorted_list]:
+            sorted_list.append({"date": datetime.now().date()-timedelta(days=1),"habit_id": i.id})
     for i in sorted_list:
         selected_habit = HabitModel.query.filter(and_(HabitModel.user == user, HabitModel.id == i["habit_id"])).first()
         if datetime.now(ZoneInfo("Europe/Moscow")).date()!=i["date"]:
@@ -42,9 +47,10 @@ def update_complete_status():
         db.session.add(selected_habit)
         db.session.commit()
 
+
 def update_streak_status():
     user = UserModel.query.get_or_404(int(get_jwt_identity()))
-    all_habits = HabitModel.query.filter(HabitModel.user == user)
+    all_habits = HabitModel.query.filter(and_(HabitModel.user == user, HabitModel.type!='weekly'))
 
     all_habits_ids = [i.id for i in all_habits]
     all_complete_habits = CompleteHabitsModel.query.filter(CompleteHabitsModel.habit_id.in_(all_habits_ids)).all()
@@ -81,6 +87,40 @@ def update_streak_status():
         db.session.add(selected_habit)
         db.session.commit()
 
+def update_weekly_done():
+    user = UserModel.query.get_or_404(int(get_jwt_identity()))
+    all_habits = HabitModel.query.filter(and_(HabitModel.user == user, HabitModel.type == 'weekly'))
+
+    all_habits_ids = [i.id for i in all_habits]
+    all_complete_habits = CompleteHabitsModel.query.filter(CompleteHabitsModel.habit_id.in_(all_habits_ids)).all()
+    all_complete_habits.sort(key=lambda x: x.date, reverse=True)
+    all_complete_habits.sort(key=lambda x: x.habit_id)
+
+    temp_list = {
+        #id: []
+    }
+    start_week = datetime.today().date() - timedelta(days=datetime.today().date().weekday())
+    end_week = start_week+timedelta(days=6)
+    for i in all_habits_ids:
+        for k in all_complete_habits:
+            if(i==k.habit_id):
+                if start_week <= k.date <= end_week:
+                    if k.habit_id not in temp_list:
+                        temp_list[k.habit_id] = 1
+                    else:
+                        temp_list[k.habit_id] = temp_list[k.habit_id]+1
+    for i in all_habits:
+        if i.id not in list(temp_list.keys()):
+            if(i.type=='weekly'):
+                i.weekly_done = 0
+    for i in list(temp_list.keys()):
+        select_habit = next((x for x in all_habits if x.id==i), None)
+        if select_habit:
+            select_habit.weekly_done = temp_list[i]
+            db.session.add(select_habit)
+            db.session.commit()
+
+
 @blp.route("/habit")
 class HabitView(MethodView):
     @jwt_required()
@@ -88,7 +128,16 @@ class HabitView(MethodView):
     @blp.response(201, HabitSchema)
     def post(self,habit_data):
         habit_data["user_id"] = int(get_jwt_identity())
+        if(habit_data['type']=="weekly"):
+
+            if not habit_data.get('weekly_goal'):
+                abort(400, message="Для привычки с типом weekly обязательно нужно передавать weekly_goal")
+
+
         new_habit = HabitModel(**habit_data)
+        if (habit_data['type'] == "weekly"):
+            new_habit.weekly_done = 0
+            new_habit.weekly_goal = 0
 
         db.session.add(new_habit)
         db.session.commit()
@@ -100,11 +149,11 @@ class HabitView(MethodView):
     def get(self):
         update_complete_status()
         update_streak_status()
+        update_weekly_done()
 
         id_user = int(get_jwt_identity())
         user = UserModel.query.get_or_404(id_user)
         all_habit = HabitModel.query.filter(HabitModel.user==user).all()
-
         return all_habit
 
 
@@ -116,6 +165,7 @@ class PickHabit(MethodView):
     def get(self, habit_id):
         update_complete_status()
         update_streak_status()
+        update_weekly_done()
         searched_habit = filtered_habit(habit_id)
         if searched_habit == None:
             abort(404, message="Привычка не найдена или у вас к ней нет доступа")

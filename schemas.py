@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validate
 from enum import Enum
 
 class TypeOfHabits(str, Enum):
@@ -16,7 +16,8 @@ class PlainHabitSchema(Schema):
     type = fields.Enum(TypeOfHabits, required=True)
     is_complete = fields.Bool(dump_only=True, required=False)
     streak = fields.Int(dump_only=True, required=False)
-    weaky_goal = fields.Int(dump_only=True, required=False)
+    weekly_done = fields.Int(dump_only=True,required=False)
+    weekly_goal = fields.Int(required=False, validate=validate.Range(min=1, max=6))
     created_at = fields.Date(dump_only=True, required=False)
 
 class HabitSchema(PlainHabitSchema):
