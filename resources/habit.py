@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from flask.views import MethodView
@@ -34,11 +34,52 @@ def update_complete_status():
             if i.date > sorted_list[there_index]['date']:
                 sorted_list[there_index]['date'] = i.date
     for i in sorted_list:
+        selected_habit = HabitModel.query.filter(and_(HabitModel.user == user, HabitModel.id == i["habit_id"])).first()
         if datetime.now(ZoneInfo("Europe/Moscow")).date()!=i["date"]:
-            selected_habit = HabitModel.query.filter(and_(HabitModel.user==user, HabitModel.id==i["habit_id"])).first()
             selected_habit.is_complete = False
-            db.session.add(selected_habit)
-            db.session.commit()
+        else:
+            selected_habit.is_complete = True
+        db.session.add(selected_habit)
+        db.session.commit()
+
+def update_streak_status():
+    user = UserModel.query.get_or_404(int(get_jwt_identity()))
+    all_habits = HabitModel.query.filter(HabitModel.user == user)
+
+    all_habits_ids = [i.id for i in all_habits]
+    all_complete_habits = CompleteHabitsModel.query.filter(CompleteHabitsModel.habit_id.in_(all_habits_ids)).all()
+    all_complete_habits.sort(key=lambda x: x.date, reverse=True)
+    all_complete_habits.sort(key=lambda x: x.habit_id)
+    last_elements = []
+    now_date = datetime.now().date()
+    minus_days = 1
+    for i in all_habits:
+        if (i.is_complete == False):
+            last_elements.append({"habit_id": i.id, "date": now_date, "streak": 0})
+    for index, k in enumerate(all_complete_habits):
+        if(k.habit_id not in [x['habit_id'] for x in last_elements]):
+            minus_days = 1
+            if(k.date!=now_date):
+                last_elements.append({"habit_id": k.habit_id, "date": k.date, "streak": 0})
+            else:
+
+                last_elements.append({"habit_id": k.habit_id, "date": k.date, "streak": 1})
+        else:
+            if(k.date==now_date-timedelta(days=minus_days)):
+                select_element = next((x for x in last_elements if x['habit_id'] == k.habit_id), None)
+                if select_element:
+                    select_element['date'] = k.date
+                    select_element['streak'] = select_element['streak']+1
+                    minus_days+=1
+            else:
+                select_element = next((x for x in last_elements if x['habit_id'] == k.habit_id), None)
+                if select_element:
+                    select_element['streak'] = select_element['streak']
+    for i in last_elements:
+        selected_habit = HabitModel.query.filter(and_(HabitModel.user == user, HabitModel.id == i["habit_id"])).first()
+        selected_habit.streak = i['streak']
+        db.session.add(selected_habit)
+        db.session.commit()
 
 @blp.route("/habit")
 class HabitView(MethodView):
@@ -58,6 +99,8 @@ class HabitView(MethodView):
     @blp.response(200, HabitSchema(many=True))
     def get(self):
         update_complete_status()
+        update_streak_status()
+
         id_user = int(get_jwt_identity())
         user = UserModel.query.get_or_404(id_user)
         all_habit = HabitModel.query.filter(HabitModel.user==user).all()
@@ -72,6 +115,7 @@ class PickHabit(MethodView):
     @blp.response(200, HabitSchema)
     def get(self, habit_id):
         update_complete_status()
+        update_streak_status()
         searched_habit = filtered_habit(habit_id)
         if searched_habit == None:
             abort(404, message="Привычка не найдена или у вас к ней нет доступа")
